@@ -45,6 +45,10 @@ O fluxo de cadastro cria a conta autenticada, configura a empresa na primeira en
 - Usuários operacionais podem operar PDV, caixa, clientes, produtos e ordens conforme as regras do banco.
 - As regras do banco são a fronteira de segurança; a visibilidade da sidebar não é considerada autorização.
 
+## Documentação
+
+A documentação técnica, operacional, de segurança e o relatório de auditoria estão em [`docs/README.md`](docs/README.md).
+
 ## Estado atual e limitações conhecidas
 
 - Não há suíte automatizada no repositório; o build TypeScript/Vite é a validação automatizada disponível.

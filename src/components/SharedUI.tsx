@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { LucideIcon, X } from 'lucide-react';
 
 interface DashCardProps { 
@@ -52,18 +53,19 @@ export function ModalBase({ open, onClose, title, width = "max-w-md", children }
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-      <div className={`bg-white dark:bg-slate-800 rounded-[24px] sm:rounded-[32px] w-full ${width} shadow-2xl flex flex-col max-h-[calc(100dvh-2rem)] sm:max-h-[90vh] animate-fade-in`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="flex justify-between items-center gap-4 p-4 sm:p-6 border-b border-slate-100 dark:border-slate-700">
+      <div className={`bg-white dark:bg-slate-800 rounded-[24px] sm:rounded-[32px] w-full ${width} shadow-[0_28px_80px_rgba(15,11,36,.28)] flex flex-col max-h-[calc(100dvh-2rem)] sm:max-h-[90vh] animate-fade-in`} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div className="flex justify-between items-center gap-4 p-5 sm:p-6 border-b border-slate-100 dark:border-slate-700">
           <h2 id="modal-title" className="text-lg sm:text-xl font-bold text-slate-800 dark:text-white">{title}</h2>
-          <button aria-label="Fechar janela" onClick={onClose} className="shrink-0 p-2 bg-slate-100 dark:bg-slate-700 rounded-full text-slate-500 hover:text-rose-500 transition-colors"><X size={20} /></button>
+          <button aria-label="Fechar janela" onClick={onClose} className="shrink-0 rounded-full bg-slate-100 p-2 text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-500 dark:bg-slate-700"><X size={20} /></button>
         </div>
-        <div className="overflow-y-auto custom-scrollbar p-4 sm:p-6">
+        <div className="min-h-0 overflow-y-auto custom-scrollbar p-5 sm:p-6">
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

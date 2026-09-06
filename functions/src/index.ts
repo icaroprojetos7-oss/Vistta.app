@@ -39,7 +39,7 @@ function numberOrError(value: unknown, label: string, minimum = 0): number {
 
 function validateItems(items: unknown): SaleItem[] {
   if (!Array.isArray(items) || items.length === 0) throw new HttpsError('invalid-argument', 'A venda precisa ter itens.');
-  return items.map((item: SaleItem) => ({
+  const validItems = items.map((item: SaleItem) => ({
     id: String(item.id || ''),
     qtd: numberOrError(item.qtd, 'Quantidade', 0.000001),
     venda: numberOrError(item.venda, 'Preço de venda'),
@@ -48,6 +48,8 @@ function validateItems(items: unknown): SaleItem[] {
     marca: item.marca || '',
     modelo: item.modelo || ''
   })).filter(item => item.id);
+  if (validItems.length === 0) throw new HttpsError('invalid-argument', 'A venda precisa ter itens válidos.');
+  return validItems;
 }
 
 async function claimRequest(path: string, uid: string): Promise<'claimed' | 'completed'> {
@@ -71,7 +73,18 @@ export const finalizeSale = onCall(async request => {
   const requestId = String(payload?.requestId || '');
   if (!requestId || requestId.length > 100) throw new HttpsError('invalid-argument', 'Identificador da venda inválido.');
 
-  const items = validateItems(payload?.items);
+  const requestedItems = validateItems(payload?.items);
+  const items = await Promise.all(requestedItems.map(async item => {
+    const productSnapshot = await database.ref(`empresas/${empresaId}/produtos/${item.id}`).get();
+    const product = productSnapshot.val();
+    if (!productSnapshot.exists() || !product) throw new HttpsError('not-found', 'Um dos produtos da venda não existe mais.');
+    const venda = Number(product.venda);
+    const custo = Number(product.custo);
+    if (!Number.isFinite(venda) || venda < 0 || !Number.isFinite(custo) || custo < 0) {
+      throw new HttpsError('failed-precondition', 'Um dos produtos possui valores inválidos.');
+    }
+    return { ...item, venda, custo, codigo: String(product.codigo || ''), marca: String(product.marca || ''), modelo: String(product.modelo || '') };
+  }));
   const pagamento = String(payload?.pag || '').trim();
   if (!pagamento) throw new HttpsError('invalid-argument', 'Forma de pagamento obrigatória.');
   const subtotal = items.reduce((sum, item) => sum + item.venda * item.qtd, 0);
@@ -175,7 +188,7 @@ export const closeCash = onCall(async request => {
 });
 export const addCashEntry = onCall(async request => {
   const uid = requireAuth(request);
-  const { empresaId } = await getCompany(uid);
+  const { empresaId } = await getCompany(uid, true);
   const caixaId = String(request.data?.caixaId || '');
   const tipo = String(request.data?.tipo || '');
   const descricao = String(request.data?.descricao || '').trim();

@@ -74,7 +74,7 @@ function MainLayout() {
         <button onClick={toggleTheme} aria-label={isDark ? 'Ativar tema claro' : 'Ativar tema escuro'} aria-pressed={isDark} className="absolute top-4 right-4 z-40 w-10 h-10 rounded-full bg-white/80 dark:bg-slate-800 border border-[#e7e1ec] dark:border-slate-700 flex items-center justify-center text-slate-500 hover:text-[#6d4aff] shadow-sm backdrop-blur" title="Alternar tema">
           {isDark ? <Sun size={18} /> : <Moon size={18} />}
         </button>
-      <main className="flex-1 overflow-y-auto p-4 pt-16 sm:pt-10 sm:p-10 lg:p-12 relative z-10 custom-scrollbar h-full vistta-grid">
+      <main className="flex-1 overflow-y-auto p-4 pb-5 pt-16 sm:p-10 sm:pt-10 lg:p-12 relative z-10 custom-scrollbar h-full vistta-grid">
         {activeTab === 'dashboard' && <DashboardScreen />}
         {activeTab === 'vendas' && <PdvScreen />}
         {activeTab === 'caixa' && <CaixaScreen />}

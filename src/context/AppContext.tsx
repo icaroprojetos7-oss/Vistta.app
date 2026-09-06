@@ -248,14 +248,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       { name: 'produtos', setter: setProdutos, queryRef: ref(db, `${basePath}/produtos`) },
       { name: 'clientes', setter: setClientes, queryRef: ref(db, `${basePath}/clientes`) },
       { name: 'fornecedores', setter: setFornecedores, queryRef: ref(db, `${basePath}/fornecedores`) },
-      { name: 'contas', setter: setContas, queryRef: ref(db, `${basePath}/contas`) },
       { name: 'categorias', setter: setCategorias, queryRef: ref(db, `${basePath}/categorias`) },
-      { name: 'usuarios', setter: setUsuarios, queryRef: ref(db, `${basePath}/usuarios`) },
       { name: 'orcamentos', setter: setOrcamentos, queryRef: ref(db, `${basePath}/orcamentos`) },
       { name: 'ordensServico', setter: setOrdensServico, queryRef: ref(db, `${basePath}/ordensServico`) },
       { name: 'vendas', setter: setVendas, queryRef: query(ref(db, `${basePath}/vendas`), orderByChild('data'), startAt(inicioMes.toISOString())) },
       { name: 'caixas', setter: setCaixas, queryRef: query(ref(db, `${basePath}/caixas`), limitToLast(100)) }
     ];
+    if (userRole === 'admin') {
+      collections.push(
+        { name: 'contas', setter: setContas, queryRef: ref(db, `${basePath}/contas`) },
+        { name: 'usuarios', setter: setUsuarios, queryRef: ref(db, `${basePath}/usuarios`) }
+      );
+    } else {
+      setContas([]);
+      setUsuarios([]);
+    }
 
     setDatabaseError(null);
     const unsubs = collections.map(col => {
@@ -275,7 +282,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     });
 
     return () => unsubs.forEach(u => u());
-  }, [empresaId]);
+  }, [empresaId, userRole]);
 
   // Funções do PDV
   const addToCart = (prod: Produto) => {

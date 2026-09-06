@@ -17,7 +17,7 @@
           ".validate": "newData.hasChildren(['nome', 'criadoPor']) && newData.child('nome').isString() && newData.child('criadoPor').isString()"
         },
         "$collection": {
-          ".read": "auth != null && root.child('users').child(auth.uid).child('empresaId').val() == $empresaId",
+          ".read": "auth != null && root.child('users').child(auth.uid).child('empresaId').val() == $empresaId && (root.child('users').child(auth.uid).child('role').val() == 'admin' || ($collection != 'usuarios' && $collection != 'contas'))",
           ".indexOn": ["data", "status", "codigo", "cliId", "clienteId", "fornecedorId"],
           "$recordId": {
             ".write": "auth != null && root.child('users').child(auth.uid).child('empresaId').val() == $empresaId && (root.child('users').child(auth.uid).child('role').val() == 'admin' || (($collection == 'produtos' || $collection == 'clientes' || $collection == 'categorias') && newData.exists()) || (($collection == 'orcamentos' || $collection == 'ordensServico') && newData.exists()))",

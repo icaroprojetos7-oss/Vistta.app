@@ -1,21 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithRedirect, getRedirectResult, GoogleAuthProvider, User } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithRedirect, getRedirectResult, GoogleAuthProvider, sendPasswordResetEmail, verifyPasswordResetCode, confirmPasswordReset, User } from 'firebase/auth';
 import { ref, update, get } from 'firebase/database';
 import { auth, db } from '../config/firebase';
 import { AlertTriangle, Mail, Lock, EyeOff, Eye, Store, Package, BarChart3, ShieldCheck, Instagram, Linkedin, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { CreatorLogo, LogoVistta, ModalBase } from '../components/SharedUI';
 
 export function AuthScreen() {
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'recover' | 'reset'>('login');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authConfirmPassword, setAuthConfirmPassword] = useState('');
   const [authError, setAuthError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [legalDocument, setLegalDocument] = useState<'terms' | 'privacy' | null>(null);
+  const [resetFeedback, setResetFeedback] = useState('');
+  const [accountExists, setAccountExists] = useState(false);
+  const [resetCode, setResetCode] = useState('');
 
   const createGoogleProfile = async (googleUser: User) => {
     const userRef = ref(db, `users/${googleUser.uid}`);
@@ -43,31 +45,60 @@ export function AuthScreen() {
     return () => { ativo = false; };
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('mode');
+    const code = params.get('oobCode');
+    if (mode !== 'resetPassword' || !code) return;
+    setAuthMode('reset');
+    setResetCode(code);
+    verifyPasswordResetCode(auth, code).then(email => {
+      setAuthEmail(email);
+    }).catch(() => {
+      setAuthError('Este link de recuperação expirou ou é inválido. Solicite um novo link.');
+      setResetCode('');
+    });
+  }, []);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setResetFeedback('');
+    setAccountExists(false);
     setIsLoggingIn(true);
     try {
       if (authMode === 'login') {
-        await signInWithEmailAndPassword(auth, authEmail, authPassword);
-      } else {
+        await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+      } else if (authMode === 'register') {
+        if (!authEmail.trim()) throw new Error('Informe seu e-mail.');
         if (authPassword.length < 6) throw new Error('A senha deve ter pelo menos 6 caracteres.');
-        if (authPassword !== authConfirmPassword) throw new Error('As senhas não conferem.');
+        if (authPassword !== authConfirmPassword) throw new Error('As senhas não coincidem.');
         if (!acceptedTerms) throw new Error('Aceite os Termos de Uso e a Política de Privacidade para continuar.');
-        const userCred = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        const userCred = await createUserWithEmailAndPassword(auth, authEmail.trim(), authPassword);
         try {
           await update(ref(db, `users/${userCred.user.uid}`), {
             role: 'admin',
-            email: authEmail,
+            email: authEmail.trim().toLowerCase(),
             nome: ''
           });
         } catch (dbErr) {
           await userCred.user.delete();
-          setAuthError('Falha ao registrar empresa no banco.');
+          throw new Error('Não foi possível concluir o cadastro. Tente novamente.');
         }
       }
     } catch (error: any) {
-      setAuthError(error?.message || (authMode === 'login' ? 'E-mail ou senha incorretos.' : 'Erro ao autenticar.'));
+      if (error?.code === 'auth/email-already-in-use') {
+        setAccountExists(true);
+        setAuthError('Este e-mail já possui uma conta. Entre com sua conta existente ou recupere sua senha.');
+      } else if (error?.code === 'auth/invalid-credential' || error?.code === 'auth/wrong-password' || error?.code === 'auth/user-not-found') {
+        setAuthError('Não foi possível entrar. Verifique suas credenciais e tente novamente.');
+      } else if (error?.code === 'auth/invalid-email') {
+        setAuthError('Informe um e-mail válido.');
+      } else if (error?.code === 'auth/network-request-failed') {
+        setAuthError('Não foi possível concluir a operação. Verifique sua conexão e tente novamente.');
+      } else {
+        setAuthError(error?.message || (authMode === 'login' ? 'Não foi possível entrar. Tente novamente.' : 'Não foi possível criar sua conta. Tente novamente.'));
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -86,6 +117,69 @@ export function AuthScreen() {
     }
   };
 
+  const handlePasswordReset = async () => {
+    const email = authEmail.trim();
+    if (!email) {
+      setAuthError('Informe um e-mail válido para receber o link de recuperação.');
+      return;
+    }
+    setAuthError('');
+    setResetFeedback('');
+    setIsLoggingIn(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetFeedback('Se houver uma conta associada a este e-mail, enviaremos as instruções para recuperação. Verifique também a pasta de spam.');
+    } catch (error: any) {
+      setResetFeedback(error?.code === 'auth/network-request-failed'
+        ? 'Não foi possível concluir a operação. Verifique sua conexão e tente novamente.'
+        : 'Se houver uma conta associada a este e-mail, enviaremos as instruções para recuperação. Verifique também a pasta de spam.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handlePasswordChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!resetCode) {
+      setAuthError('Este link de recuperação expirou ou é inválido. Solicite um novo link.');
+      return;
+    }
+    if (authPassword.length < 6) {
+      setAuthError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (authPassword !== authConfirmPassword) {
+      setAuthError('As senhas não coincidem.');
+      return;
+    }
+    setAuthError('');
+    setIsLoggingIn(true);
+    try {
+      await confirmPasswordReset(auth, resetCode, authPassword);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setResetCode('');
+      setAuthPassword('');
+      setAuthConfirmPassword('');
+      setAuthMode('login');
+      setResetFeedback('Senha redefinida com sucesso. Entre com sua nova senha.');
+    } catch (error: any) {
+      setAuthError(error?.code === 'auth/expired-action-code' || error?.code === 'auth/invalid-action-code'
+        ? 'Este link de recuperação expirou ou já foi utilizado. Solicite um novo link.'
+        : 'Não foi possível redefinir a senha. Tente solicitar um novo link.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const openMode = (mode: 'login' | 'register' | 'recover' | 'reset') => {
+    setAuthMode(mode);
+    setAuthError('');
+    setResetFeedback('');
+    setAccountExists(false);
+    setAuthPassword('');
+    setAuthConfirmPassword('');
+  };
+
   function getGoogleErrorMessage(error: any) {
     const errorMessage = String(error?.message || '').toLowerCase();
     if (error?.code === 'auth/unauthorized-domain') {
@@ -97,7 +191,9 @@ export function AuthScreen() {
     if (error?.code === 'auth/popup-blocked') return 'O pop-up foi bloqueado. O login será redirecionado.';
     if (error?.code === 'auth/popup-closed-by-user') return 'O login do Google foi cancelado.';
     if (error?.code === 'auth/operation-not-allowed') return 'O provedor Google não está ativado no Firebase Authentication.';
-    return `Não foi possível entrar com Google: ${error?.message || 'erro desconhecido.'}`;
+    if (error?.code === 'auth/account-exists-with-different-credential') return 'Este e-mail já está vinculado a outro método de acesso. Entre usando o método original ou recupere sua senha.';
+    if (error?.code === 'auth/network-request-failed') return 'Não foi possível concluir a operação. Verifique sua conexão e tente novamente.';
+    return 'Não foi possível entrar com Google. Tente novamente.';
   }
 
   return (
@@ -153,46 +249,50 @@ export function AuthScreen() {
       </div>
 
       {/* Formulário Direito */}
-      <div className="flex-1 lg:w-[45%] min-w-0 min-h-[100dvh] bg-[#0f0b24] dark:bg-[#0f0b24] flex flex-col items-center justify-start lg:justify-center p-4 pb-8 sm:p-6 lg:p-8 relative overflow-y-auto custom-scrollbar">
+      <div className="flex-1 lg:w-[45%] min-w-0 min-h-[100dvh] bg-[#0f0b24] dark:bg-[#0f0b24] flex flex-col items-center justify-start lg:justify-center px-4 pb-6 pt-8 sm:p-6 lg:p-8 relative overflow-y-auto custom-scrollbar">
         <div className="w-full max-w-[520px]">
-          <div className="mb-5 flex items-center gap-3 lg:hidden">
-            <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-[#080a12] p-1"><LogoVistta className="h-full w-full" solidWhite={false} /></span>
-            <div><div className="font-display text-lg font-bold tracking-[.18em] text-white">VISTTA</div><div className="text-[8px] font-semibold uppercase tracking-[.2em] text-[#b879ff]">Gestão inteligente para óticas</div></div>
+          <div className="mb-7 flex flex-col items-center gap-3 text-center lg:hidden">
+            <span className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-[#080a12] p-1.5 shadow-[0_10px_30px_rgba(109,74,255,.2)]"><LogoVistta className="h-full w-full" solidWhite={false} /></span>
+            <div><div className="font-display text-xl font-bold tracking-[.2em] text-white">VISTTA</div><div className="mt-1 text-[8px] font-semibold uppercase tracking-[.2em] text-[#b879ff]">Gestão inteligente para óticas</div></div>
           </div>
-          <div className="bg-white/[0.055] dark:bg-white/[0.055] rounded-[20px] sm:rounded-[28px] shadow-[0_24px_70px_rgba(0,0,0,.3)] border border-[#8d63ff]/30 p-4 sm:p-7 lg:p-8 mb-6 w-full backdrop-blur-md">
-             <div className="text-center mb-8">
-               <div className="inline-flex items-center gap-2 text-[#b879ff] text-[10px] font-bold uppercase tracking-[.18em] mb-5"><Lock size={13} /> Acesso seguro</div><h2 className="font-display text-[28px] font-bold mb-2 text-white">{authMode === 'login' ? 'Bem-vindo de volta!' : 'Crie sua conta'}</h2>
+          <div className="bg-white/[0.055] dark:bg-white/[0.055] rounded-[20px] sm:rounded-[28px] shadow-[0_24px_70px_rgba(0,0,0,.3)] border border-[#8d63ff]/30 p-5 sm:p-7 lg:p-8 mb-5 w-full backdrop-blur-md">
+             <div className="text-center mb-6 sm:mb-8">
+               <div className="inline-flex items-center gap-2 text-[#b879ff] text-[10px] font-bold uppercase tracking-[.18em] mb-4"><Lock size={13} /> Acesso seguro</div><h2 className="font-display text-2xl sm:text-[28px] font-bold mb-2 text-white">{authMode === 'login' ? 'Bem-vindo de volta!' : authMode === 'register' ? 'Crie sua conta' : authMode === 'recover' ? 'Recuperar senha' : 'Definir nova senha'}</h2>
                {authMode === 'login' && <p className="text-[14px] text-white/60">Acesse sua conta para continuar.</p>}
                {authMode === 'register' && <p className="text-[14px] text-white/60">Comece a gerenciar sua ótica de forma inteligente.</p>}
+               {authMode === 'recover' && <p className="text-[14px] text-white/60">Digite seu e-mail para receber o link de recuperação.</p>}
+               {authMode === 'reset' && <p className="text-[14px] text-white/60">Escolha uma nova senha para voltar a acessar sua conta.</p>}
              </div>
              
-             <form onSubmit={handleAuth} className="space-y-4">
-               {authError && (<div className="bg-rose-50 text-rose-600 p-3.5 rounded-xl text-sm font-bold flex gap-3 border border-rose-100"><AlertTriangle size={18} /><span>{authError}</span></div>)}
+             <form onSubmit={authMode === 'recover' ? (event) => { event.preventDefault(); void handlePasswordReset(); } : authMode === 'reset' ? handlePasswordChange : handleAuth} className="space-y-4">
+               {authError && (<div role="alert" className="bg-rose-50 text-rose-600 p-3.5 rounded-xl text-sm font-bold flex gap-3 border border-rose-100"><AlertTriangle size={18} /><span>{authError}</span></div>)}
+               {resetFeedback && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm font-semibold text-emerald-700">{resetFeedback}</p>}
+               {accountExists && <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-bold text-[#6d4aff]"><button type="button" onClick={() => openMode('login')} className="hover:underline">Entrar</button><button type="button" onClick={() => openMode('recover')} className="hover:underline">Esqueci minha senha</button></div>}
                
                <div>
                  <label className="block text-[11px] font-bold text-white/55 uppercase tracking-wider mb-2">E-mail</label>
                  <div className="relative">
                    <Mail size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                   <input type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-4 py-3.5 outline-none focus:border-[#9c4cff]" placeholder="Seu e-mail" />
+                   <input type="email" required readOnly={authMode === 'reset'} autoComplete="email" value={authEmail} onChange={e => { setAuthEmail(e.target.value); setAuthError(''); setResetFeedback(''); }} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-4 py-3.5 outline-none focus:border-[#9c4cff] read-only:opacity-70" placeholder="Seu e-mail" aria-invalid={Boolean(authError)} />
                  </div>
                </div>
 
-               <div>
+               {authMode !== 'recover' && <div>
                  <label className="block text-[11px] font-bold text-white/55 uppercase tracking-wider mb-2">Senha</label>
                  <div className="relative">
                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                   <input type={showPassword ? "text" : "password"} required value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-12 py-3.5 outline-none focus:border-[#9c4cff]" placeholder="Sua senha" />
-                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                   <input type={showPassword ? "text" : "password"} required autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-12 py-3.5 outline-none focus:border-[#9c4cff]" placeholder="Sua senha" />
+                   <button type="button" aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                    </button>
                  </div>
-               </div>
-
-               {authMode === 'register' && <div>
+                   {authMode === 'login' && <button type="button" onClick={() => openMode('recover')} className="mt-2 text-xs font-semibold text-[#b879ff] hover:underline">Esqueci minha senha</button>}
+               </div>}
+               {(authMode === 'register' || authMode === 'reset') && <div>
                  <label className="block text-[11px] font-bold text-white/55 uppercase tracking-wider mb-2">Confirmar senha</label>
                  <div className="relative">
                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                   <input type={showPassword ? 'text' : 'password'} required value={authConfirmPassword} onChange={e => setAuthConfirmPassword(e.target.value)} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-4 py-3.5 outline-none focus:border-[#9c4cff]" placeholder="Confirme sua senha" />
+                   <input type={showPassword ? 'text' : 'password'} required autoComplete="new-password" value={authConfirmPassword} onChange={e => setAuthConfirmPassword(e.target.value)} className="w-full bg-white/[0.06] border border-white/10 text-white placeholder:text-white/35 rounded-xl pl-12 pr-4 py-3.5 outline-none focus:border-[#9c4cff]" placeholder="Confirme sua senha" />
                  </div>
                </div>}
 
@@ -202,9 +302,10 @@ export function AuthScreen() {
                </label>}
 
                <button type="submit" disabled={isLoggingIn} className="w-full bg-[#6d4aff] hover:bg-[#5637e8] text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 mt-4 transition-colors shadow-[0_10px_22px_rgba(109,74,255,.2)]">
-                 {isLoggingIn ? 'Aguarde...' : (authMode === 'login' ? 'Entrar' : 'Criar minha conta')}
+                 {isLoggingIn ? (authMode === 'recover' ? 'Enviando...' : authMode === 'reset' ? 'Salvando...' : authMode === 'login' ? 'Entrando...' : 'Criando conta...') : (authMode === 'login' ? 'Entrar' : authMode === 'register' ? 'Criar minha conta' : authMode === 'recover' ? 'Enviar link de recuperação' : 'Salvar nova senha')}
                </button>
 
+               {(authMode === 'login' || authMode === 'register') && <>
                <div className="my-5 flex items-center gap-3"><div className="h-px flex-1 bg-white/15"></div><span className="text-xs font-medium text-white/45">ou</span><div className="h-px flex-1 bg-white/15"></div></div>
 
                  <button type="button" onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full border border-white/10 bg-white/[0.06] py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 mt-4 text-white/85 hover:bg-white/10 disabled:opacity-60 transition-colors">
@@ -216,10 +317,11 @@ export function AuthScreen() {
                  </svg>
                  Continuar com Google
                </button>
+               </>}
                
                <div className="text-center mt-6">
-                 <button type="button" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')} className="text-sm font-bold text-[#6d4aff] hover:underline">
-                   {authMode === 'login' ? 'Criar uma conta' : 'Fazer login'}
+                 <button type="button" onClick={() => openMode(authMode === 'login' ? 'register' : 'login')} className="text-sm font-bold text-[#6d4aff] hover:underline">
+                   {authMode === 'login' ? 'Ainda não tenho conta? Criar conta' : authMode === 'register' ? 'Já tenho uma conta? Entrar' : 'Voltar para entrar'}
                  </button>
                </div>
              </form>
@@ -238,24 +340,24 @@ function LoginFooter({ onLegalOpen }: { onLegalOpen: (document: 'terms' | 'priva
   const linkedinUrl = 'https://www.linkedin.com/in/7icaaro';
 
   return (
-    <footer className="w-full pb-4 text-[10px] text-slate-500 dark:text-slate-400">
-      <div className="grid grid-cols-2 gap-x-6 gap-y-7 border-t border-[#e7e1ec] dark:border-[#3d3154] pt-6 sm:grid-cols-4 sm:gap-x-5">
+    <footer className="w-full pb-2 text-[9px] text-slate-500 dark:text-slate-400 sm:pb-4 sm:text-[10px]">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-5 border-t border-[#e7e1ec] pt-5 dark:border-[#3d3154] sm:gap-x-5 sm:gap-y-7 sm:pt-6">
         <div>
-          <h3 className="mb-3 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Navegação</h3>
-          <div className="space-y-2.5"><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Dashboard</strong><small className="block text-[9px] text-slate-400">Visão geral da ótica</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Caixa diário</strong><small className="block text-[9px] text-slate-400">Abertura e fechamento</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Clientes e estoque</strong><small className="block text-[9px] text-slate-400">Cadastros e inventário</small></span><a href={supportEmail} className="block hover:text-[#6d4aff]">Fale conosco</a></div>
+          <h3 className="mb-2 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Navegação</h3>
+          <div className="space-y-1.5 sm:space-y-2.5"><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Dashboard</strong><small className="hidden text-[9px] text-slate-400 sm:block">Visão geral da ótica</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Caixa diário</strong><small className="hidden text-[9px] text-slate-400 sm:block">Abertura e fechamento</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Clientes e estoque</strong><small className="hidden text-[9px] text-slate-400 sm:block">Cadastros e inventário</small></span><a href={supportEmail} className="block hover:text-[#6d4aff]">Fale conosco</a></div>
         </div>
         <div>
-          <h3 className="mb-3 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Legal</h3>
-          <div className="space-y-2.5"><button type="button" onClick={() => onLegalOpen('terms')} className="block text-left hover:text-[#6d4aff]"><strong className="font-medium">Termos de uso</strong><small className="block text-[9px] text-slate-400">Regras da plataforma</small></button><button type="button" onClick={() => onLegalOpen('privacy')} className="block text-left hover:text-[#6d4aff]"><strong className="font-medium">Política de privacidade</strong><small className="block text-[9px] text-slate-400">Proteção dos seus dados</small></button><a href="mailto:icaroprojetos7@gmail.com?subject=Exclusão%20de%20conta" className="block hover:text-[#6d4aff]"><strong className="font-medium">Exclusão de conta</strong><small className="block text-[9px] text-slate-400">Solicite pelo suporte</small></a></div>
+          <h3 className="mb-2 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Legal</h3>
+          <div className="space-y-1.5 sm:space-y-2.5"><button type="button" onClick={() => onLegalOpen('terms')} className="block text-left hover:text-[#6d4aff]"><strong className="font-medium">Termos de uso</strong><small className="hidden text-[9px] text-slate-400 sm:block">Regras da plataforma</small></button><button type="button" onClick={() => onLegalOpen('privacy')} className="block text-left hover:text-[#6d4aff]"><strong className="font-medium">Política de privacidade</strong><small className="hidden text-[9px] text-slate-400 sm:block">Proteção dos seus dados</small></button><a href="mailto:icaroprojetos7@gmail.com?subject=Exclusão%20de%20conta" className="block hover:text-[#6d4aff]"><strong className="font-medium">Exclusão de conta</strong><small className="hidden text-[9px] text-slate-400 sm:block">Solicite pelo suporte</small></a></div>
         </div>
         <div>
-          <h3 className="mb-3 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Produto</h3>
-          <div className="space-y-2.5"><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">PDV e vendas</strong><small className="block text-[9px] text-slate-400">Venda com agilidade</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Orçamentos e OS</strong><small className="block text-[9px] text-slate-400">Serviços sob controle</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Financeiro e DRE</strong><small className="block text-[9px] text-slate-400">Resultados da operação</small></span></div>
+          <h3 className="mb-2 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Produto</h3>
+          <div className="space-y-1.5 sm:space-y-2.5"><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">PDV e vendas</strong><small className="hidden text-[9px] text-slate-400 sm:block">Venda com agilidade</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Orçamentos e OS</strong><small className="hidden text-[9px] text-slate-400 sm:block">Serviços sob controle</small></span><span className="block"><strong className="font-medium text-slate-700 dark:text-slate-300">Financeiro e DRE</strong><small className="hidden text-[9px] text-slate-400 sm:block">Resultados da operação</small></span></div>
         </div>
         <div>
-          <h3 className="mb-3 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Status e suporte</h3>
-          <div className="mb-3 flex items-center gap-1.5 text-emerald-600 dark:text-[#c6ed76]"><CheckCircle2 size={12} /> Operacional</div>
-          <p className="mb-3 leading-relaxed">Dados sincronizados em tempo real</p>
+          <h3 className="mb-2 min-h-4 text-[10px] font-bold text-slate-900 dark:text-white">Status e suporte</h3>
+          <div className="mb-2 flex items-center gap-1.5 text-emerald-600 dark:text-[#c6ed76]"><CheckCircle2 size={12} /> Operacional</div>
+          <p className="mb-2 hidden leading-relaxed sm:block">Dados sincronizados em tempo real</p>
           <div className="space-y-2">
             <a href={supportEmail} className="block hover:text-[#6d4aff]"><strong className="font-medium">Gmail</strong><small className="block break-all text-[9px] text-slate-400">icaroprojetos7@gmail.com</small></a>
             <a href={instagramUrl} target="_blank" rel="noreferrer" className="block hover:text-[#d62976]"><strong className="font-medium">Instagram</strong><small className="block text-[9px] text-slate-400">Acompanhe a AXXIS7</small></a>
@@ -263,7 +365,7 @@ function LoginFooter({ onLegalOpen }: { onLegalOpen: (document: 'terms' | 'priva
           </div>
         </div>
       </div>
-      <div className="mt-7 flex flex-col gap-4 border-t border-[#e7e1ec] pt-5 dark:border-[#3d3154] sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-5 flex flex-col gap-3 border-t border-[#e7e1ec] pt-4 dark:border-[#3d3154] sm:mt-7 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:pt-5">
         <p className="max-w-[280px] leading-relaxed">© 2026 VISTTA. Sistema de gestão para óticas. Todos os direitos reservados.</p>
         <div className="flex items-center gap-2">
           <span className="mr-1 text-[10px] font-bold text-white">Fale com a AXXIS7</span>

@@ -29,15 +29,6 @@ As funções `finalizeSale`, `openCash`, `closeCash` e `addCashEntry` exigem usu
 
 Crie um arquivo `.env` local com as variáveis `VITE_FIREBASE_*` usadas em `src/config/firebase.ts`. O arquivo `.env` não deve ser versionado. As chaves web do Firebase devem ter restrições de domínio configuradas no Google Cloud Console.
 
-Para proteger autenticação com reCAPTCHA v3, configure também:
-
-```env
-VITE_RECAPTCHA_SITE_KEY=chave-publica-do-site
-VITE_RECAPTCHA_VERIFY_URL=https://seu-backend.example.com/security/recaptcha/verify
-```
-
-O frontend envia `{ token, action }` por `POST` ao endpoint. O backend deve validar o token com `https://www.google.com/recaptcha/api/siteverify`, usando `secret` somente no servidor, e retornar JSON no formato `{ "success": true, "score": 0.9, "action": "login" }`. O backend deve conferir também o hostname, a ação esperada e um score mínimo adequado ao risco da operação. Nunca coloque a chave secreta em `VITE_*` ou no código do navegador.
-
 ## Firebase
 
 As regras do Realtime Database estão em `database.rules.json` e são referenciadas por `firebase.json`:

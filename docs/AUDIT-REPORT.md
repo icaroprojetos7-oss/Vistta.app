@@ -2,7 +2,7 @@
 
 ## Status geral
 
-**APROVADO COM RESSALVAS** para continuidade de homologação. **Bloqueado para lançamento público** até concluir configuração externa, testes manuais e revisão de dependências.
+**APROVADO COM RESSALVAS** para continuidade de homologação. **Bloqueado para lançamento público** até concluir configuração externa, testes ativos de segurança, backup/restauração e fluxos críticos.
 
 ## Nota técnica
 
@@ -47,12 +47,13 @@ O detalhamento por módulo e o roadmap estão em [ERP-MODULES.md](ERP-MODULES.md
 
 ## Problemas médios
 
-- `npm audit` reporta 12 vulnerabilidades transitivas no frontend e 12 moderadas no conjunto de Functions; a correção automática forçada teria mudanças quebradoras.
+- `npm audit` reporta 12 vulnerabilidades transitivas no frontend (2 altas) e 11 moderadas no conjunto de Functions; a correção automática forçada teria mudanças quebradoras.
 - Bundle frontend excede 500 kB após minificação.
 - Não há lint configurado.
 - Não há estratégia de backup/restauração versionada ou comprovada.
 - Não há roteamento URL nem página 404 dedicada; a navegação é por abas internas.
 - Observabilidade é limitada a `console.error` e ErrorBoundary.
+- Não existe suíte automatizada real, lint ou teste E2E configurado.
 
 ## Problemas baixos
 
@@ -70,6 +71,7 @@ O detalhamento por módulo e o roadmap estão em [ERP-MODULES.md](ERP-MODULES.md
 - Metadados de produção foram adicionados ao HTML.
 - Documentação técnica e operacional foi criada em `docs/`.
 - Arquivos temporários sem referências foram removidos.
+- Checklist de homologação, backup, permissões, estoque, observabilidade e produção foram documentados.
 
 ## Arquivos removidos
 
@@ -81,7 +83,7 @@ Nenhuma; todas as dependências declaradas possuem uso identificado.
 
 ## Riscos restantes
 
-Concorrência, recuperação de dados, retenção LGPD, exportação/exclusão, restrições de API key, domínio autorizado e configuração de alertas precisam de validação operacional.
+Concorrência, recuperação de dados, retenção LGPD, exportação/exclusão, restrições de API key, domínio autorizado, rate limiting e configuração de alertas precisam de validação operacional.
 
 ## Bloqueadores de lançamento
 
@@ -90,6 +92,7 @@ Concorrência, recuperação de dados, retenção LGPD, exportação/exclusão, 
 3. Resolver ou aceitar formalmente vulnerabilidades de dependências.
 4. Definir backup, restauração, retenção e responsável por privacidade.
 5. Confirmar Node 20 no ambiente de deploy das Functions.
+6. Executar o checklist de [HOMOLOGATION.md](HOMOLOGATION.md) em projeto Firebase separado.
 
 ## Checklist final
 
@@ -111,3 +114,9 @@ Concorrência, recuperação de dados, retenção LGPD, exportação/exclusão, 
 - FAQ: OK, documentada em `docs/FAQ.md` e refletida na Central de Ajuda existente
 - Documentação: OK
 - Produção: BLOQUEADA COM RESSALVAS
+
+## Classificação do Prompt Master
+
+- 🟢 **PRONTO:** build, TypeScript, regras JSON, isolamento estrutural por empresa, autenticação implementada, venda server-side e documentação.
+- 🟡 **ATENÇÃO:** bundle, dependências vulneráveis, ausência de lint/testes automatizados, observabilidade limitada e permissões não granulares.
+- 🔴 **BLOQUEIA PRODUÇÃO:** homologação real, teste de concorrência, backup/restauração, configuração do Firebase de produção e revisão operacional das Rules.
